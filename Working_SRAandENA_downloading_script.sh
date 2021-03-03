@@ -1,4 +1,7 @@
+
+
 #!/usr/bin/bash
+#SBATCH for SLURM use on HPC
 #SBATCH --job-name=${SLURMJOB_ID}Sra_download
 #SBATCH --output=SRA_downloading_test.out
 #SBATCH --error=SRA_downloading_test.error
