@@ -4,14 +4,11 @@
 #SBATCH -error=SRA_downloading_test.error
 #SBATCH --mail-user=jobrien20@qub.ac.uk
 #SBATCH --mail-type=FAIL
-#SBATCH --partition=k2-hipri
-#SBATCH --time=3:00:00
+#SBATCH --partition=k2-medpri
+#SBATCH --time=24:00:00
 #SBATCH --ntasks=16
 
-. /opt/gridware/depots/54e7fb3c/el7/pkg/apps/anaconda3/5.2.0/bin/etc/profile.d/conda.sh
-
-conda activate downloader
-
+# THIS SCRIPT HAS SLURM COMMANDS ADDED.
 # Assumes two maximum PRJE/PRJA/NCBI/whatever for each study
 
 # So first input for script is the comma indented table
@@ -109,9 +106,9 @@ cp ${Output_dir}/Files_by_databse/ncbi_studiesproject_datas.txt pj.txt
 # Removes any speech marks from this column
 cat ${Output_dir}/Files_by_database/ncbi_studiesproject_datas.txt | tr -d '"' > ${Output_dir}/Files_by_database/ncbi_studiesproject_datas2.txt
 cat ${Output_dir}/Files_by_database/end_studiesproject_datas.txt | tr -d '"' > ${Output_dir}/Files_by_database/end_studiesproject_datas2.txt
-. /opt/gridware/depots/54e7fb3c/el7/pkg/apps/anaconda3/5.2.0/bin/etc/profile.d/conda.sh 
 
-conda activate fasterq-dump-env
+
+
 # Loop for NCBI database. 
 while read study
 do
@@ -137,7 +134,7 @@ do
 
 done < ${Output_dir}/Files_by_database/ncbi_studiesproject_datas2.txt
 
-conda activate downloader
+
 # Lopo for ena database, follows same general principle.
 while read study
 do
