@@ -1,14 +1,16 @@
 #!/usr/bin/bash
 #SBATCH --job-name=${SLURMJOB_ID}Mass_study_downloading
 #SBATCH --output=mass_downloading.out
-#SBATCH -error=SRA_downloading_test.error
+#SBATCH --error=SRA_downloading_test.error
 #SBATCH --mail-user=jobrien20@qub.ac.uk
 #SBATCH --mail-type=FAIL
 #SBATCH --partition=k2-medpri
-#SBATCH --time=24:00:00
 #SBATCH --ntasks=16
 
-# THIS SCRIPT HAS SLURM COMMANDS ADDED.
+. /opt/gridware/depots/54e7fb3c/el7/pkg/apps/anaconda3/5.2.0/bin/etc/profile.d/conda.sh
+
+conda activate downloader
+
 # Assumes two maximum PRJE/PRJA/NCBI/whatever for each study
 
 # So first input for script is the comma indented table
@@ -85,14 +87,14 @@ do
 
 	cut -d ',' -f${field} ${1} > ${Output_dir}/Files_by_database/${2}project_datas.txt
 	is_data=$(head -n1 ${Output_dir}/Files_by_database/${2}project_datas.txt)
-	echo "Heey" $is_data
-	if [[ ${is_data} == "Data" ]]                                               # Checks each respective column to find one that is titles "Data"
+	if [[ ${is_data} == "Data" ]]
 	then
 		sed -i 1d ${Output_dir}/Files_by_database/${2}project_datas.txt
 		field_count=0
 	else
-		echo "Fail" > fail.txt
+
 		rm ${Output_dir}/Files_by_database/${2}project_datas.txt
+
 	fi
 
 done
@@ -102,63 +104,141 @@ done
 # Running of this
 extracting_data_list_func ${Output_dir}/Files_by_database/end_studies.txt end_studies
 extracting_data_list_func ${Output_dir}/Files_by_database/ncbi_studies.txt ncbi_studies
-cp ${Output_dir}/Files_by_databse/ncbi_studiesproject_datas.txt pj.txt
-# Removes any speech marks from this column
 cat ${Output_dir}/Files_by_database/ncbi_studiesproject_datas.txt | tr -d '"' > ${Output_dir}/Files_by_database/ncbi_studiesproject_datas2.txt
 cat ${Output_dir}/Files_by_database/end_studiesproject_datas.txt | tr -d '"' > ${Output_dir}/Files_by_database/end_studiesproject_datas2.txt
+. /opt/gridware/depots/54e7fb3c/el7/pkg/apps/anaconda3/5.2.0/bin/etc/profile.d/conda.sh 
 
+conda activate fasterq-dump-env
 
-
-# Loop for NCBI database. 
 while read study
 do
-	echo ${study} > ${Output_dir}/temp_folder/project_in_q.txt
-	head -n1 ${Output_dir}/temp_folder/project_in_q.txt | tr -d ' ' | tr 'and' '\n' > ${Output_dir}/temp_folder/project_in_q.txt
-	proj_count=$(wc -l > ${Output_dir}/temp_folder/project_in_q.txt)
-	mkdir ${Output_dir}/${study}
-	if [[ $proj_count == 2 ]]     # Some studies have two project accessions. This checks for that.
+
+
+	ncbi_array+=("${study}")
+
+
+
+done < ${Output_dir}/Files_by_database/ncbi_studiesproject_datas2.txt
+
+
+while read study
+do
+
+	
+	ena_array+=("${study}")
+
+
+done < ${Output_dir}/Files_by_database/end_studiesproject_datas2.txt
+
+for study in "${ncbi_array[@]}"  
+do
+	# Testing if there are two projects in the study
+	echo ${study} > ${Output_dir}/temp_folder/project.txt
+	head -n1 ${Output_dir}/temp_folder/project.txt | tr -d ' ' | tr 'and' '\n' > ${Output_dir}/temp_folder/project_in_q.txt
+	sed -i '2,3d' ${Output_dir}/temp_folder/project_in_q.txt
+	proj_count=$(cat ${Output_dir}/temp_folder/project_in_q.txt | wc -l )
+	echo ${study} > ${Output_dir}/temp_folder/for_study.txt
+	
+	# Making name for directory forming
+
+	cat ${Output_dir}/temp_folder/for_study.txt | tr -d ' ' > ${Output_dir}/temp_folder/for_2.txt
+	study_val_for_dir=$(cat ${Output_dir}/temp_folder/for_2.txt)
+	mkdir ${Output_dir}/${study_val_for_dir}
+	
+	Running of downloading and fastq converting scripts
+	if [[ $proj_count == 2 ]]
 	then
-		proj_1=$(sed -i 1p ${Output_dir}/temp_folder/project_in_q.txt)
-		proj_2=$(sed -i 2p ${Output_dir}/temp_folder/project_in_q.txt)
-		srun --input none ncbi_script.sh ${proj_1} ${Output_dir}/${study}     # Running of ncbi_script.sh containing sra extraction and fasterq-dump
-		srun --input none ncbi_script.sh ${proj_2} ${Output_dir}/${study}  
+		
+		proj_1=$(sed -n '1p' ${Output_dir}/temp_folder/project_in_q.txt)
+		proj_2=$(sed -n '2p' ${Output_dir}/temp_folder/project_in_q.txt)
+		mkdir ${Output_dir}/${proj_1}
+		mkdir ${Output_dir}/${proj_2}
+		srun --input none ncbi_script2.sh ${proj_1} ${Output_dir}/${proj_1}
+		srun --input none ncbi_script2.sh ${proj_2} ${Output_dir}/${proj_2}
+		srun ncbi_name_editing.sh ${Output_dir}/${proj_1} ${proj_1}
+		srun ncbi_name_editing.sh ${Output_dir}/${proj_2} ${proj_2}
+		mv ${Output_dir}/${proj_1}/* ${Output_dir}/${study_val_for_dir}
+		mv ${Output_dir}/${proj_2}/* ${Output_dir}/${study_val_for_dir}
+		rm -r ${Output_dir}/${proj_1}
+		rm -r ${Output_dir}/${proj_2}
+		
 	else	
-		srun --input none ncbi_script.sh ${study} ${Output_dir}/${study}
+		
+		srun --input none ncbi_script2.sh ${study} ${Output_dir}/${study_val_for_dir}
+		srun ncbi_name_editing.sh ${Output_dir}/${study_val_for_dir} ${study} 
+		
 	fi
 	grep ${study} ${1} > ${Output_dir}/temp_folder/study.txt
 	
 	for (( x = 1 ; x <= ${field_count2} ; x += 1 ))
 	do
-		cut -d ',' -f ${x} ${Output_dir}/temp_folder/study.txt >> ${Output_dir}/${study}/readme.txt    # Generation of readme based on initial table
+		cut -d ',' -f ${x} ${Output_dir}/temp_folder/study.txt >> ${Output_dir}/${study_val_for_dir}/readme.txt
 	done
 
-done < ${Output_dir}/Files_by_database/ncbi_studiesproject_datas2.txt
+done
+conda activate downloader
 
-
-# Lopo for ena database, follows same general principle.
-while read study
+# Running of array for ena in loop one by one
+for study in "${ena_array[@]}"
 do
+	# Checking project count
+	
 	echo ${study} > ${Output_dir}/temp_folder/project_in_q.txt
 	head -n1 ${Output_dir}/temp_folder/project_in_q.txt | tr -d ' ' | tr 'and' '\n' > ${Output_dir}/temp_folder/project_in_q.txt
-	proj_count=$(wc -l > ${Output_dir}/temp_folder/project_in_q.txt)
-	mkdir ${Output_dir}/${study}
-	if [[ ${proj_count} == 2 ]]
-	then
-		proj_1=$(sed -i 1p ${Output_dir}/temp_folder/project_in_q.txt)
-		proj_2=$(sed -i 2p ${Output_dir}/temp_folder/project_in_q.txt)
+	sed -i '2,3d' ${Output_dir}/temp_folder/project_in_q.txt
+	proj_count=$(cat ${Output_dir}/temp_folder/project_in_q.txt | wc -l )
 
-
-		srun --input none emd_script.sh ${proj_1} ${Output_dir}                 #This script is the only difference. 
-		srun --input none emd_script.sh ${proj_2} ${Output_dir}
-	else	
-		srun --input none emd_script.sh ${study} ${Output_dir}
-	fi	
-	grep ${study} ${1} > ${Output_dir}/temp_folder/study.txt
 	
+	if [[ ${proj_count} == 2 ]]
+	# For two values
+	then
+		# Creates variables for each study, then runs them in ena script
+		proj_1=$(sed -n '1p' ${Output_dir}/temp_folder/project_in_q.txt)
+		proj_2=$(sed -n '2p' ${Output_dir}/temp_folder/project_in_q.txt)
+		srun --input none ena_script.sh ${proj_1} ${Output_dir}
+		srun --input none ena_script.sh ${proj_2} ${Output_dir}
+		
+		#Moves the two projects into the same folder so all fastas from one study are together
+		
+		echo "${study}" > ${Output_dir}/temp_folder/study_val.txt
+		study_val=$(cat ${Output_dir}/temp_folder/study_val.txt | tr -d ' ')
+		mkdir ${Output_dir}/${study_val}
+		mv ${Output_dir}/${proj_1}/* ${Output_dir}/${study_val}
+		mv ${Output_dir}/${proj_2}/* ${Output_dir}/${study_val}
+		#Generates variable containing all the files
+		FILES=${Output_dir}/${study_val}/*
+	else
+		#Runs for one value. Runs the script then generates variable containing all the files	
+		srun --input none ena_script.sh ${study} ${Output_dir}
+		FILES=${Output_dir}/${study}/*
+	
+	fi
+	# ENA creates folders for each sample it downloads. This moves the directories contents and deletes them. Standardizes output so there's not a bunch of folders
+	for f in ${FILES}
+	do	
+	if [[ -d ${f} ]]
+		then
+			mv ${f}/* ${Output_dir}/${study}
+			rm -r ${f}
+	fi
+	
+	done	
+	# Readme generation. Greps the exact study from the initial table datasets. 
+	grep ${study} ${1} > ${Output_dir}/temp_folder/study.txt
+	# Loops over each field (title, data etc) so that each is added to the readme. Uses the grep above so that it only uses fields from the exact study 
 	for (( x = 1 ; x <= ${field_count2} ; x += 1 ))
 	do	
-		cut -d ',' -f${x} ${Output_dir}/temp_folder/study.txt > ${Output_dir}/${study}/readme.txt
-
+		if [[ -z "${proj_1} ]] && [[ -z "${proj_2} ]]  # Checks if proj_1 or proj_2 variable exist so that it know where exactly to put readme.txt
+			then
+				cut -d ',' -f${x} ${Output_dir}/temp_folder/study.txt > ${Output_dir}/${study_val}/readme.txt
+				srun ERPnamescript.sh ${Output_dir}/${study_val}
+		
+		else  
+				
+				cut -d ',' -f${x} ${Output_dir}/temp_folder/study.txt > ${Output_dir}/${study}/readme.txt
+				srun ERPnamescript.sh ${Output_dir}/${study}			
+		fi
+	
 	done
-
-done < ${Output_dir}/Files_by_database/end_studiesproject_datas2.txt
+	
+done
