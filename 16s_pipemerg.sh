@@ -61,7 +61,7 @@ mkdir ${Input_dir}/Initial_QC_results/fastqc
 
 # for the information obtaining. Runs fastqc/multiqc script for visualisation as well as python script to get some extra info
 
-echo -e "Study\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/Initial_QC_results/QCinfo_summary.txt
+echo -e "Study\tNumber of samples\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/Initial_QC_results/QCinfo_summary.txt
 for study in "${study_array[@]}"
 do
 
@@ -82,33 +82,7 @@ done
 # Removes empty lines from QC info document produced by fastq_median.py
  
 sed -i '/^$/d' ${Input_dir}/Initial_QC_results/QCinfo_summary.txt 
-
-#Merging
-
-#Testing for paired end
-mkdir ${Input_dir}/Merged_QC_results
-mkdir ${Input_dir}/mergedreads
-${Input_dir}/Merged_QC_results/specific_study_qc_info_tables
-for study in "${study_array[@]}"
-do
-	#Checking for paired
-	ls ${Input_dir}/${study} > ${Input_dir}/pipeline_folder/mergecheck.txt
-	check=$(head -n1 ${Input_dir}/pipeline_folder/mergecheck.txt)
-	check_paired=$(head -n1 ${Input_dir}/pipeline_folder/mergecheck.txt | sed 's/_1.fastq.gz//g') 
-	if [[ $check != $check_paired ]]
-	# Merging files
-		srun ngmerge5.sh ${Input_dir}/${study}
-		mkdir ${Input_dir}/mergedreads/${study}
-		mv ${Input_dir}/${study}/mergedfastqs5/*.fastq ${Input_dir}/mergedreads/${study}
-	# Rechecking for QC
-		srun fastqcanal_test.sh ${Input_dir}/mergedreads/${study}
-		mkdir ${Input_dir}/Merged_QC_results/${study}
-		mv ${Input_dir}/mergedreads/${study}/fastqc_results ${Input_dir}/Merged_QC_results/${study}
-		mkdir ${Input_dir}/mergedreads/${study}/multiqc_results ${Input_dir}/Merged_QC_results/${study}
-		srun fastq_median.py ${Input_dir}/mergedreads/${study}
-		head -n1 ${Input_dir}/${study}/study_qual_info.txt >> ${Input_dir}/Initial_QC_results/QCinfo_summary.txt 
-done
-# Removal of low amount reads and trimming
+# 
 mkdir ${Input_dir}/trimmedreads
 for study in "${study_array[@]}"
 do
@@ -117,15 +91,17 @@ do
 	mkdir ${Input_dir}/trimmedreads/${study}
 	for sample in "${specific_study_array[@]}"
 	do
+		sample_name=$(echo $sample | sed 's/.fastq//g')
 	# Running of trimmomatic to remove low read length and phred score of less than 30 
-		trimmomatic SE ${Input_dir}/${study}/${sample} ${Input_dir}/trimmedreads/${study}/trimmed${sample} MINLEN:175 AVGQUAL:30
+		trimmomatic SE ${Input_dir}/${study}/${sample} ${Input_dir}/trimmedreads/${study}/trimmed${sample_name}.fastq MINLEN:175 SLIDINGWINDOW:3:20
 	done
 	unset specific_study_array
 done
 
+
 # Final QC analysis
 mkdir ${Input_dir}/Trimmed_QC_results ${Input_dir}/Trimmed_QC_results/fastqc ${Input_dir}/Trimmed_QC_results/multiqc
-echo -e "Study\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/Trimmed_QC_results/QCinfo_summary.txt 
+echo -e "Study\tNumber of samples\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/Trimmed_QC_results/QCinfo_summary.txt 
 for study in "${study_array[@]}"
 do
 	# Running of fastQC and multiQC
@@ -148,58 +124,114 @@ done
 
 sed -i '/^$/d' ${Input_dir}/Trimmed_QC_results/QCinfo_summary.txt 
 # Bracken/kraken
+#Merging
+
+#Testing for paired end
+mkdir ${Input_dir}/Merged_QC_results
+mkdir ${Input_dir}/mergedreads
+mkdir ${Input_dir}/finalreads
+"Study\tNumber of samples\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/Merged_QC_results/QCinfo_summary.txt
+
+for study in "${study_array[@]}"
+do
+	loop_val=0
+	mkdir ${Input_dir}/finalreads/${study}
+	#Checking for paired
+	ls ${Input_dir}/trimmedreads/${study} > ${Input_dir}/pipeline_folder/mergecheck.txt
+	word_count=$(ls ${Input_dir}/trimmedreads/${study} | wc -l )
+	for (( x = 1 ; x <= ${word_count} ; x += 1 ))
+	do
+	if [[ ${loop_val} == 1 ]]
+	then
+		break
+	fi
+		file_name=$(sed -n '${x}p' ${Input_dir}/pipeline_folder/mergecheck.txt)
+		echo ${file_name} > ${Input_dir}/pipeline_folder/mergecheck2.txt
+		file_fastq=$(sed 's/.fastq//g' ${Input_dir}/pipeline_folder/mergecheck2.txt)
+		if [[ ${file_name} != ${file_fastq} ]]
+		then
+			check=$(head -n1 ${Input_dir}/pipeline_folder/mergecheck.txt)
+			check_paired=$(sed -n '${x}p' ${Input_dir}/pipeline_folder/mergecheck.txt | sed 's/_1.fastq//g')
+			check_paired2=$(sed -n '{$x}p' ${Input_dir}/pipeline_folder/mergecheck.txt | sed 's/_2.fastq//g') 
+			if [[ ${check} != ${check_paired} ]] || [[ ${check} != ${check_paired2} ]]
+			then
+	# Merging files
+				srun ngmerge5.sh ${Input_dir}/${study}
+				mkdir ${Input_dir}/mergedreads/${study}
+				mv ${Input_dir}/${study}/mergedfastqs5/*.fastq ${Input_dir}/mergedreads/${study}
+				echo "confirmed paired data" > ${Input_dir}/${study}/trimmedreads/paired_confirm.txt
+				cp ${Input_dir}/${study}/mergedreads/*.fastq ${Input_dir}/${study}/finalreads
+	
+	# Final QC for merged paired end data
+				
+				srun fastqcanal_test.sh ${Input_dir}/mergedreads/${study}
+				mkdir ${Input_dir}/Merged_QC_results/${study}
+				mv ${Input_dir}/mergedreads/${study}/fastqc_results ${Input_dir}/Merged_QC_results/${study}
+				mkdir ${Input_dir}/mergedreads/${study}/multiqc_results ${Input_dir}/Merged_QC_results/${study}
+				srun fastq_median.py ${Input_dir}/mergedreads/${study}
+				head -n1 ${Input_dir}/mergedreads/${study}/study_qual_info.txt >> ${Input_dir}/Merged_QC_results/QCinfo_summary.txt
+				loop_val += 1
+			else
+				cp ${Input_dir}/${trimmedreads}/${study}/*.fastq ${Input_dir}/finalreads/${study}
+				loop_val += 1
+			fi
+		fi
+	done
+done
+sed -i '/^$/d' ${Input_dir}/Merged_QC_results/QCinfo_summary.txt
+# Generation of final medians for bracken
+mkdir ${Input_dir}
+"Study\tNumber of samples\tMedian reads\tMedian sequence length\tPhred Score Range\tMedian Phred Score" > ${Input_dir}/final_median_info/QCinfo_summary.txt
+
+for study in "${study_array[@]}"
+do
+	fastq_median.py ${Input_dir}/finalreads/${study}
+	head -n1 ${Input_dir}/finalreads/${study}/study_qual_info.txt >> ${Input_dir}/final_median_info/QCinfo_summary.txt
+done
+
+
 # First generation of ideal read length for bracken by looking at median read lengths of trimmed studies and picking the lowest
 
-cut -f4 ${Input_dir}/Trimmed_QC_results/QCinfo_summary.txt > ${Input_dir}/pipeline_folder/study_medians.txt
-sed -i 1d ${Input_dir}/pipeline_folder/study_medians.txt
 
-readarray -t study_medians_array < ${Input_dir}/pipeline_folder/study_medians.txt
-lowest_med=${study_medians_array[0]}
-for median in "${study_medians_array[@]}"
-do
-	if [ ${lowest_med} -gt ${median} ]
-	then
-		lowest_med=${median}     #this is the lowest median found after comparing studies
-	fi
-done
-echo ${lowest_med} > lowest_median.txt
   
 # Bracken/Kraken library construction
 # Issue to be resolved: this takes 132 version silva library and not 138 version
 
 kraken2-build --db ${Input_dir}/silva_krakbrak_database --threads 10 --special silva 
 
-bracken-build -d ${Input_dir}/silva_krakbrak_database -t 10 -k 31 -l ${lowest_med}
+
 
 mkdir ${Input_dir}/kraken_results ${Input_dir}/bracken_results ${Input_dir}/bracken_results/Genera ${Input_dir}/bracken_results/Species
-
-
+## CREATE FINAL MEDIANS DOC
+median_field_val=1
 for study in "${study_array[@]}"
 
 do
 	ls ${Input_dir}/trimmedreads/${study} > ${Input_dir}/pipeline_folder/trimmed_fastq_list.txt	
 	readarray -t trimmed_study_array < ${Input_dir}/pipeline_folder/trimmed_fastq_list.txt
 	mkdir ${Input_dir}/kraken_results/${study} ${Input_dir}/bracken_results/Genera/${study} ${Input_dir}/bracken_results/Species/${study}
-	
+	median_field_val += 1
+	study_median=$(cut -f4 ${Input_dir}/final_median_info/QCinfo_summary.txt | sed -n '${median_field_val}p')
+	bracken-build -d ${Input_dir}/silva_krakbrak_database -t 10 -k 31 -l ${study_median}
 	for sample in "${trimmed_study_array[@]}"
 	do	
 		# Running of kraken to determine taxonomy of reads
 		
 		kraken2 --db=${Input_dir}/silva_krakbrak_database --threads 10 --report ${Input_dir}/kraken_results/${study}/${sample}.kreport2 \
-		${Input_dir}/trimmedreads/${study}/${sample} \
+		${Input_dir}/finalreads/${study}/${sample} \
 		> ${Input_dir}/${kraken_results}/${study}/${sample}kraken.kraken2
 		
 		# Running of bracken at a genera level to estimate taxonomy abundance
 		
 		bracken -d ${Input_dir}/silva_krakbrak_database -i ${Input_dir}/kraken_results/${study}/${sample}.kreport2 \
 		-o ${Input_dir}/bracken_results/Genera/${study}/${sample}.bracken \
-		-r ${lowest_med} -l 'G' -t 10
+		-r ${study_median} -l 'G' -t 10
 		
 		# Running of bracken at a species level to estimate taxonomy abundance
 
 		bracken -d ${Input_dir}/silva_krakbrak_database -i ${Input_dir}/kraken_results/${study}/${sample}.kreport2 \
 		-o ${Input_dir}/bracken_results/Species/${study}/${sample}.bracken \
-		-r ${lowest_med} -t 10
+		-r ${study_median} -l 'F' -t 10
 	
 	done
 done
